@@ -1,0 +1,168 @@
+
+父类实现了 Serializable 接口后如何不修改父类的情况下让子类不可序列化？
+
+答：这个题目其实违反了里氏替换原则（子类对象可以无条件的替换父类对象），
+不过面试官可能是想考察系列化的自定义操作，所以下面给出一个答案，如下：
+class SubClass extends SuperSerializableClass {
+    private void writeObject(java.io.ObjectOutputStream out)
+        throws IOException {
+        throw new NotSerializableException("XXX");
+    }
+
+    private void readObject(java.io.ObjectInputStream in)
+        throws IOException, ClassNotFoundException {
+        throw new NotSerializableException("XXX");
+    }
+
+    private void readObjectNoData() throws ObjectStreamException {
+        throw new NotSerializableException("XXX");
+    }
+}
+
+
+子类实现序列化接口与父类实现序列化接口有什么区别吗？
+
+答：子类实现 Serializable 接口而父类未实现时，父类不会被序列化，也不会报序列化错误，
+但是如果父类没有默认无参（有参的要报错）构造方法则在反序列化时会出异常；
+父类实现序列化则子类会自动实现序列化而不需要显式实现 Serializable 接口。
+
+
+序列化与反序列化时子类和父类构造方法是怎么调用的？
+
+这个的答案解析就得看下面的实战例子了，如下：
+class Base1 implements Serializable {
+    public Base1() {
+        System.out.println("Base1");
+    }
+}
+
+
+class Child1 extends Base1 {
+    public Child1() {
+        System.out.println("Child1");
+    }
+}
+
+
+class Base2 {
+    public Base2() {
+        System.out.println("Base2");
+    }
+}
+
+
+class Child2 extends Base2 implements Serializable {
+    public Child2() {
+        System.out.println("Child2");
+    }
+}
+
+
+public class Demo {
+    public static void main(String[] args) throws IOException, Exception {
+        ObjectOutputStream oos1 = new ObjectOutputStream(new FileOutputStream(
+                    "obj1.dat"));
+
+        Child1 oosChild1 = new Child1();
+
+        oos1.writeObject(oosChild1);
+
+        oos1.flush();
+
+        oos1.close();
+
+        //重点
+        ObjectInputStream ois1 = new ObjectInputStream(new FileInputStream(
+                    "obj1.dat"));
+
+        Child1 oisChild1 = (Child1) ois1.readObject();
+
+        System.out.println(oisChild1);
+
+        ois1.close();
+
+        ObjectOutputStream oos2 = new ObjectOutputStream(new FileOutputStream(
+                    "obj2.dat"));
+
+        Child2 oosChild2 = new Child2();
+
+        oos2.writeObject(oosChild2);
+
+        oos2.flush();
+
+        oos2.close();
+
+        ObjectInputStream ois2 = new ObjectInputStream(new FileInputStream(
+                    "obj2.dat"));
+
+        Child2 oisChild2 = (Child2) ois2.readObject();
+
+        System.out.println(oisChild2);
+
+        ois2.close();
+    }
+}
+
+如上代码的输出如下：
+Base1
+Child1
+Child1@1c64a584
+Base2
+Child2
+Base2
+Child2@70501e4e
+所以序列化中子类和父类构造方法的调用规则如下：
+序列化时子类递归调用父类的构造函数，反序列化作用于子类对象时如果其父类没有实现序列化接口
+则其父类的默认无参构造函数会被调用，如果父类实现了序列化接口则不会调用构造方法。
+但是如果上面 Base2 不存在默认无参（有参的要报错）构造方法就会出错.
+
+所以要想将父类对象也序列化就需要让父类也实现 Serializable 接口，
+如果父类没有实现就需要有默认的无参构造方法，
+因为在父类没有实现 Serializable 接口时虚拟机是不会序列化父对象的，
+而一个 Java 对象的构造必须先有父对象才有子对象，反序列化也不例外，
+所以反序列化时为了构造父对象则只能调用父类的无参构造函数作为默认的父对象，
+故当我们取父对象的变量值时都是无参构造方法中初始化的值。
+
+父类没有实现seal接口怎么被序列化？
+
+答：因为在父类没有实现 Serializable 接口时虚拟机是不会序列化父对象的
+（即序列化后的流中没有父类信息），
+而一个 Java 对象的构造必须先有父对象才有子对象，反序列化也一样，
+所以反序列化时为了构造父对象只能调用父类的无参构造方法作为默认的父对象，
+故要让一个没有实现 Serializable 接口的父类能够序列化则必须要求父类有无参构造方法且子类负责序列化（反序列化）父类的域。
+如下给出实现样例：
+
+进一步理解，序列化保存的是对象的状态，也就是对象的成员变量，父类没有实现serializable
+所以不能保存它的成员变量，所以首先通过父类构造函数初始化父类的变量然后通过手动将成员变量
+写入对象流里面，实现父类的序列化，反序列也是一样的。
+abstract class Base {
+    public int value;
+    public Base(int value) {
+        this.value = value;
+    }
+
+    public Base() {
+    }
+}
+class Sub extends Base implements Serializable
+    {
+        public int subvalue;
+        public Sub(int value, int subvalue)
+        {
+            super(value);
+     	    this.subvalue =subvalue;
+        }
+
+　   private void writeObject(java.io.ObjectOutputStream out) throws IOException
+        {
+            out.defaultWriteObject();
+            out.writeInt(value);
+        }
+
+　　private void readObject(java.io.ObjectInputStream in) throws IOException, ClassNotFoundException
+
+        {
+            in.defaultReadObject();
+            value = in.readInt();
+　　
+        }
